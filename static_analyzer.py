@@ -123,35 +123,34 @@ async def run_tool(command: List[str]) -> Tuple[Optional[dict], Optional[str]]:
 async def run_slither(file_path: str, solc_version: str) -> StaticAnalysisOutput:
     """Menjalankan Slither dan memformat hasilnya."""
     # Gunakan solc-select untuk memastikan versi compiler yang tepat
-    solc_select_command = f"solc-select use {solc_version} && "
-    slither_command = f"slither {file_path} --json -"
-    full_command = f"/bin/bash -c '{solc_select_command}{slither_command}'"
+    solc_args = "--allow-paths ."
+    command = [
+        "slither", file_path, 
+        "--solc-solcs-select", solc_version, 
+        "--json", "-",
+        "--solc-args", solc_args
+    ]
+    logger.info(f"Menjalankan Slither dengan perintah: {' '.join(command)}")
     
-    logger.info(f"Menjalankan Slither dengan perintah: {full_command}")
+    # Menggunakan run_tool yang sudah diperbarui
+    output_json, stderr_output = await run_tool(command)
     
-    process = await asyncio.create_subprocess_shell(
-        full_command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
-    stdout_str = stdout.decode('utf-8', errors='ignore').strip()
-    stderr_str = stderr.decode('utf-8', errors='ignore').strip()
-
-    if process.returncode != 0 and not stdout_str:
-        error_msg = f"Slither exited with code {process.returncode}. STDERR: {stderr_str}"
+    # Jika run_tool mengembalikan error, langsung gunakan itu.
+    if not output_json:
+        error_msg = f"Slither execution failed. Details: {stderr_output}"
+        logger.error(error_msg)
+        return StaticAnalysisOutput(tool_name="Slither", issues=[], error=error_msg)
+        
+    # Jika Slither berhasil tapi melaporkan error internal
+    if not output_json.get("success"):
+        internal_error = output_json.get("error", "Unknown Slither error.")
+        error_msg = f"Slither reported an internal error: {internal_error}. STDERR: {stderr_output or 'Empty'}"
         logger.error(error_msg)
         return StaticAnalysisOutput(tool_name="Slither", issues=[], error=error_msg)
 
-    try:
-        output_json = json.loads(stdout_str)
-        issues = format_slither_output(output_json)
-        logger.info(f"Slither selesai, menemukan {len(issues)} isu.")
-        return StaticAnalysisOutput(tool_name="Slither", issues=issues)
-    except json.JSONDecodeError:
-        error_msg = f"Gagal mem-parsing output JSON Slither. STDERR: {stderr_str}"
-        logger.error(error_msg)
-        return StaticAnalysisOutput(tool_name="Slither", issues=[], error=error_msg)
+    issues = format_slither_output(output_json)
+    logger.info(f"Slither selesai, menemukan {len(issues)} isu.")
+    return StaticAnalysisOutput(tool_name="Slither", issues=issues)
 
 
 async def run_mythril(file_path: str, solc_version: str) -> StaticAnalysisOutput:
