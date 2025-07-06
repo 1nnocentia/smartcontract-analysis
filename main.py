@@ -13,7 +13,7 @@ import requests
 import logging
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import static_analyzer
 import llm_analyzer
@@ -29,8 +29,13 @@ logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 load_dotenv()
 
+class AnalysisMetadata(BaseModel):
+    """Metadata tentang kontrak yang dianalisis."""
+    file_path: Optional[str] = Field(None, description="Path file dari kontrak yang dianalisis, jika tersedia.")
+    token_address: str = Field(..., description="Alamat token kontrak di blockchain.")
 class FinalResponse(BaseModel):
     """Model output akhir yang menggabungkan hasil dari kedua analisis."""
+    metadata: AnalysisMetadata = Field(..., description="Informasi sumber tentang kontrak yang dianalisis.")
     static_analysis_report: static_analyzer.StaticAnalysisOutput = Field(..., description="Hasil dari analisis statis menggunakan Slither dan Mythril.")
     llm_contextual_report: llm_analyzer.LLMAnalysisResult = Field(..., description="Hasil dari analisis kontekstual oleh LLM dengan Knowledge-Augmented Generation (KAG).")
 
