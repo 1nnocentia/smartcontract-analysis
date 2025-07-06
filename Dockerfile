@@ -2,6 +2,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+ENV PYTHONPATH=/app
+
 # Non-interactive frontend untuk apt-get untuk menghindari prompt
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -44,4 +46,4 @@ COPY . .
 EXPOSE 8000
 
 # Perintah default untuk menjalankan aplikasi saat container dimulai
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
