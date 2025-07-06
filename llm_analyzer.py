@@ -36,23 +36,23 @@ def create_kag_prompt(full_input_json: Dict[str, Any]) -> str:
     knowledge_base_str = json.dumps(full_input_json, indent=2)
 
     prompt = f"""
-You are a world-class smart contract auditor with deep expertise in DeFi, tokenomics, and EVM security. You will be provided with a complete JSON object containing a smart contract's metadata and its full Abstract Syntax Tree (AST).
+Anda adalah seorang auditor smart contract kelas dunia dengan keahlian mendalam di bidang DeFi, tokenomics, dan keamanan EVM. Anda akan diberikan sebuah objek JSON lengkap yang berisi metadata smart contract beserta Abstract Syntax Tree (AST) lengkapnya.
 
-YOUR TASK:
-Perform a deep, contextual analysis to find risks that are often missed by automated static analysis tools. Use the provided AST to understand the contract's structure, control flow, and function relationships. DO NOT analyze the raw source code, focus your analysis on the provided knowledge base (AST and metadata).
+TUGAS ANDA:
+Lakukan analisis kontekstual yang mendalam untuk menemukan risiko yang seringkali terlewat oleh alat analisis statis otomatis. Gunakan AST yang disediakan untuk memahami struktur, alur kontrol, dan hubungan antar fungsi di dalam kontrak. JANGAN menganalisis kode sumber mentah, fokuskan analisis Anda pada basis pengetahuan yang disediakan (AST dan metadata).
 
-FOCUS AREAS:
-1.  **Business Logic Flaws:** Are there exploitable paths that contradict the contract's intent? (e.g., incorrect state management, flawed operational sequences).
+AREA FOKUS:
+1.  **Business Logic Flaws:** Apakah ada jalur yang dapat dieksploitasi yang bertentangan dengan tujuan kontrak? (misalnya, manajemen state yang salah, urutan operasional yang keliru).
 2.  **Economic & Tokenomic Risks:**
-    - Analyze minting/burning functions. Is there sufficient control to prevent infinite inflation or deflation?
-    - Examine transfer/fee mechanisms. Is there potential for manipulation (e.g., reentrancy, fee evasion)?
-    - Can critical parameters (like `_taxReceiver`) be set to malicious addresses?
+    - Analisis fungsi minting/burning. Apakah ada kontrol yang cukup untuk mencegah inflasi atau deflasi tak terbatas?
+    - Periksa mekanisme transfer/biaya. Apakah ada potensi manipulasi (misalnya, reentrancy, penghindaran biaya)?
+    - Dapatkah parameter kritis (seperti _taxReceiver) diatur ke alamat yang berbahaya?
 3.  **Centralization Risks:**
-    - Analyze the usage of access control modifiers like `onlyOwner`. How critical are the protected functions?
-    - Does any single address hold excessive power that could harm users?
+    - Analisis penggunaan modifier kontrol akses seperti onlyOwner. Seberapa kritis fungsi-fungsi yang dilindunginya?
+    - Apakah ada satu alamat yang memiliki kekuatan berlebihan yang dapat membahayakan pengguna?
 4.  **Gas Efficiency and Best Practices:**
-    - Are there any glaringly inefficient code patterns or data structures visible from the AST?
-    - Does the contract adhere to modern security standards (e.g., checks-effects-interactions)?
+    - Apakah ada pola kode atau struktur data yang sangat tidak efisien yang terlihat dari AST?
+    - Apakah kontrak mematuhi standar keamanan modern (misalnya, pola checks-effects-interactions)?
 
 KNOWLEDGE BASE (METADATA AND AST):
 ```json
@@ -60,16 +60,16 @@ KNOWLEDGE BASE (METADATA AND AST):
 ```
 
 REQUIRED OUTPUT FORMAT:
-Your entire response MUST be a single, valid JSON object and nothing else. Adhere strictly to this structure:
+Seluruh respons Anda HARUS berupa satu objek JSON yang valid dan tidak ada yang lain. Patuhi struktur ini dengan ketat:
 {{
-  "executive_summary": "A 2-3 sentence executive summary of the contract's overall security posture based on your findings.",
-  "overall_risk_grading": "A single holistic risk rating: 'Critical', 'High', 'Medium', or 'Low'.",
+  "executive_summary": "Ringkasan eksekutif 2-3 kalimat mengenai postur keamanan kontrak secara keseluruhan berdasarkan temuan Anda.",
+  "overall_risk_grading": "Satu peringkat risiko holistik: 'Kritis', 'Tinggi', 'Sedang', atau 'Rendah'.",
   "findings": [
     {{
-      "severity": "The severity of the finding: 'Critical', 'High', 'Medium', 'Low', or 'Informational'.",
-      "category": "The category of the finding: 'Logic Flaw', 'Economic Risk', 'Centralization', 'Gas Optimization', or 'Best Practice'.",
-      "description": "A detailed explanation of the risk or suggestion. Be specific and reference contract elements if possible.",
-      "confidence": "A float between 0.0 and 1.0 representing your confidence in this finding."
+      "severity": "Tingkat keparahan temuan: 'Kritis', 'Tinggi', 'Sedang', 'Rendah', atau 'Informasional'.",
+      "category": "Kategori temuan: 'Logic Flaw', 'Economic Risk', 'Centralization', 'Gas Optimization', or 'Best Practice'.",
+      "description": "Penjelasan detail mengenai risiko atau saran. Jelaskan secara spesifik dan sebutkan elemen kontrak jika memungkinkan.",
+      "confidence": "Angka desimal antara 0.0 hingga 1.0 yang merepresentasikan tingkat keyakinan Anda terhadap temuan ini."
     }}
   ]
 }}
