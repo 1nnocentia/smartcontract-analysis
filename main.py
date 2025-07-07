@@ -107,6 +107,8 @@ async def analyze_contract(
     3.  Menjalankan analisis statis dan LLM secara paralel.
     4.  Mengembalikan laporan gabungan.
     """
+    token_address = None
+    file_path = None
     # 1. Ekstrak informasi dari input JSON
     try:
         token_address = input_data["contract_metadata"]["token_address"]
@@ -151,6 +153,7 @@ async def analyze_contract(
 
         # 4. Gabungkan hasil dan kirim response
         return FinalResponse(
+            metadata=AnalysisMetadata(file_path=file_path, token_address=token_address),
             static_analysis_report=static_report,
             llm_contextual_report=llm_report
         )
