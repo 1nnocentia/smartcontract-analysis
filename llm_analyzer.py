@@ -3,7 +3,7 @@ import json
 import requests
 import asyncio
 import logging
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator, model_validator
 from typing import List, Dict, Any, Optional
 
 from prompt import KAG_SYSTEM_PROMPT
@@ -20,12 +20,55 @@ class LLMIssue(BaseModel):
     description: str = Field(..., description="Penjelasan detail mengenai risiko atau saran perbaikan.")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Tingkat keyakinan LLM terhadap temuannya (0.0 - 1.0).")
 
+    # Tambahkan validator untuk memastikan severity valid
+    @validator('severity')
+    def validate_and_normalize_severity(cls, v: str) -> str:
+        normalized_v = v.capitalize()
+        allowed_severities = {'Kritis', 'Tinggi', 'Sedang', 'Rendah', 'Informasional'}
+
+        if normalized_v not in allowed_severities:
+            raise ValueError(f"Nilai severity '{v}' tidak valid. Harus salah satu dari: {allowed_severities}")
+        
+        return normalized_v
 class LLMAnalysisResult(BaseModel):
     """Model untuk output akhir dari analisis LLM."""
     executive_summary: str = Field(..., description="Ringkasan eksekutif 2-3 kalimat tentang postur keamanan kontrak secara keseluruhan.")
     overall_risk_grading: str = Field(..., description="Penilaian risiko holistik dalam satu kata: 'Kritis', 'Tinggi', 'Sedang', atau 'Rendah'.")
     findings: List[LLMIssue] = Field(..., description="Daftar semua temuan dari LLM.")
     error: Optional[str] = None
+
+    # Validator model untuk konsistensi laporan
+    @model_validator(mode='after')
+    def check_risk_grading_consistency(self) -> 'LLMAnalysisResult':
+        # Jika tidak ditemukan issue berarti grading tidak Kritis/Tinggi
+        if not self.findings:
+            if self.overall_risk_grading in {'Kritis', 'Tinggi'}:
+                logger.warning(f"Grading '{self.overall_risk_grading}' tidak konsisten karena tidak ada temuan. "
+                    "Memperbaiki menjadi 'Rendah'.")
+                self.overall_risk_grading = 'Rendah'
+            return self
+        
+        severity_rank = {'Kritis': 4, 'Tinggi': 3, 'Sedang': 2, 'Rendah': 1, 'Informasional': 0}
+
+        # Cari tingkat keparahan tertinggi
+        max_rank_in_findings = 0
+        highest_severity_in_findings = "Informasional"
+        for issue in self.findings:
+            rank = severity_rank.get(issue.severity, 0)
+            if rank > max_rank_in_findings:
+                max_rank_in_findings = rank
+                highest_severity_in_findings = issue.severity
+        overall_grading_rank = severity_rank.get(self.overall_risk_grading, 0)
+
+        # Jika grading lebih rendah dari issue tertinggi, perbaiki
+        if overall_grading_rank < max_rank_in_findings:
+            logger.warning(
+                f"Inkonsistensi terdeteksi: 'overall_risk_grading' dari LLM adalah '{self.overall_risk_grading}', "
+                f"tetapi temuan terparah adalah '{highest_severity_in_findings}'. "
+                f"Memperbaiki secara otomatis.")
+            self.overall_risk_grading = highest_severity_in_findings
+        return self
+
 
 # --- Core Functions ---
 
