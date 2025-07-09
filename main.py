@@ -159,6 +159,24 @@ async def llm_analysis(full_input_json: Dict[str, Any] = Body(..., description="
     logger.info("Analisis LLM berhasil.")
     return llm_report
 
+@app.post("/generate-recommendations", response_model=llm_analyzer.LLMRecommendationResult, summary="Generate Recommendations")
+async def generate_recommendations_endpoint(static_analysis_output: static_analyzer.StaticAnalysisOutput = Body(..., description="Output dari analisis statis yang berisi temuan keamanan.")):
+    """
+    Memberikan rekomendasi perbaikan berdasarkan temuan analisis statis.
+    1. Mengirim analisa statis ke LLM
+    2. LLM memberikan penjelasan dan rekomendasi perbaikan
+    3. Memberikan rekomendasi
+    """
+    findings_dict = [issue.model_dump() for issue in static_analysis_output.issues]
+    recommendation_result = await llm_analyzer.generate_recommendations(findings_dict)
+
+    if isinstance(recommendation_result, Exception):
+        logger.error(f"Proses rekomendasi gagal: {recommendation_result}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Proses rekomendasi gagal: {str(recommendation_result)}")
+    logger.info("Proses rekomendasi berhasil.")
+    return recommendation_result
+
+
 @app.get("/", summary="Health Check")
 def read_root():
     return {"status": "Analyzer service is running."}
