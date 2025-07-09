@@ -3,7 +3,7 @@ import json
 import requests
 import asyncio
 import logging
-from pydantic import BaseModel, Field, validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Dict, Any, Optional
 
 from prompt import KAG_SYSTEM_PROMPT
@@ -21,7 +21,7 @@ class LLMIssue(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Tingkat keyakinan LLM terhadap temuannya (0.0 - 1.0).")
 
     # Tambahkan validator untuk memastikan severity valid
-    @validator('severity')
+    @field_validator('severity')
     def validate_and_normalize_severity(cls, v: str) -> str:
         normalized_v = v.capitalize()
         allowed_severities = {'Kritis', 'Tinggi', 'Sedang', 'Rendah', 'Informasional'}
