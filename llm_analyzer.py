@@ -69,8 +69,56 @@ class LLMAnalysisResult(BaseModel):
             self.overall_risk_grading = highest_severity_in_findings
         return self
 
+class LLMRecommendation(BaseModel):
+    """
+    Model untuk rekomenasi perbaikan
+    """
+    original_check: str
+    original_message: str
+    line_number: str
+    explanation: str
+    recommended_code_snippet: str
+
+class LLMRecommendationResult(BaseModel):
+    """
+    Model output rekomendasi LLM
+    """
+    recommendations: List[LLMRecommendation]
+    error: Optional[str] = None
 
 # --- Core Functions ---
+
+async def _call_llm_api(prompt: str, timeout: int=180) -> Dict[str, Any]:
+    """
+    Untuk memanggil API Gemini
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("GEMINI_API_KEY tidak ditemukan di environment variables.")
+        raise ValueError("GEMINI_API_KEY tidak ditemukan di env")
+    
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "temperature": 0.1,
+            "topP": 0.95,
+        }
+    }
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: requests.post(api_url, json=payload, timeout=timeout)
+    )
+    response.raise_for_status()
+    response_json = response.json()
+
+    if not response_json.get('candidates') or not response_json['candidates'][0].get('content'):
+        raise KeyError("Struktur respons LLM tidak valid: 'candidates' atau 'content' tidak ada.")
+    
+    result_text = response_json['candidates'][0]['content']['parts'][0]['text']
+    return json.loads(result_text)
 
 def create_kag_prompt(full_input_json: Dict[str, Any]) -> str:
     """
