@@ -137,6 +137,26 @@ async def static_analysis(input_data: StaticAnalysisInput):
             os.remove(tmp_file_path)
             logger.info(f"File sementara {tmp_file_path} telah dihapus.")
 
+@app.post("/llm-analysis", response_model=llm_analyzer.LLMAnalysisResult, summary="LLM Analysis")
+async def llm_analysis(full_input_json: Dict[str, Any] = Body(..., description="Input JSON lengkap untuk analisis LLM.")):
+    """
+    Endpoint untuk LLM analysis dengan KAG
+    1. Ambil prompt
+    2. Jalankan analisis LLM
+    3. Kembalikan hasil analisis
+    """
+    logger.info("Memulai analisis LLM dengan KAG...")
+
+    if "contract_metadata" not in full_input_json or "token_address" not in full_input_json["contract_metadata"]:
+        raise HTTPException(status_code=400, detail="Input JSON harus berisi 'contract_metadata' dengan 'token_address'.")
+    
+    llm_report = await llm_analyzer.run_analysis(full_input_json)
+
+    if isinstance(llm_report, Exception):
+        logger.error(f"Analisis LLM gagal: {llm_report}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Analisis LLM gagal: {str(llm_report)}")
+    logger.info("Analisis LLM berhasil.")
+    return llm_report
 
 @app.get("/", summary="Health Check")
 def read_root():
