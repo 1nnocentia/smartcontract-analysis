@@ -11,8 +11,8 @@ import asyncio
 import tempfile
 import requests
 import logging
-from fastapi import FastAPI, HTTPException, Body
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Depends, Form
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Any, Optional
 
 import static_analyzer
@@ -38,8 +38,18 @@ class StaticAnalysisInput(BaseModel):
     """
     Endpoint untuk static analysis.
     """
-    token_address: str = Field(..., description="Alamat token kontrak yang akan dianalisis.")
+    token_address: Optional[str] = Field(None, description="Alamat token kontrak yang akan dianalisis.")
     solidity_version: str = Field(..., description="Versi Solidity yang digunakan oleh kontrak.")
+
+    @model_validator(mode='before')
+    @classmethod
+    def check_executive_source(cls, data:Any):
+        if not isinstance(data,dict):
+            return data
+        if not data.get("token_address") and not data.get("source_file"):
+            raise ValueError("Harus ada 'token_address' atau 'source_file' yang disediakan untuk analisis static.")
+        return data
+
 
 class AnalysisMetadata(BaseModel):
     """
@@ -51,7 +61,7 @@ class AnalysisMetadata(BaseModel):
 app = FastAPI(
     title="Hybrid Smart Contract Analyzer",
     description="Menjalankan analisis statis (Slither, Mythril) dan analisis LLM (KAG) secara paralel menggunakan Docker.",
-    version="2.1.0"
+    version="3.1.0"
 )
 
 def fetch_source_code_from_etherscan(address: str) -> str:
@@ -104,17 +114,30 @@ def fetch_source_code_from_etherscan(address: str) -> str:
         raise HTTPException(status_code=503, detail=f"Error saat menghubungi Etherscan API: {e}")
 
 @app.post("/static-analysis", response_model=static_analyzer.StaticAnalysisOutput, summary="Static Analysis")
-async def static_analysis(input_data: StaticAnalysisInput):
+async def static_analysis(solidity_version: str = Form(..., description="Versi Solidity yang digunakan oleh kontrak."),
+                          token_address: Optional[str] = Form(None, description="Alamat token kontrak yang akan dianalisis."),
+                          source_file: Optional[str] = Form(None, description="Path file kontrak yang akan dianalisis.")):
     """
     Endpoint untuk menjalankan analisis statis pada smart contract.
     1. Ambil source code dari Etherscan
     2. Menjalankan analisis statis menggunakan Slither & Mythril
     3. Laporan analisis
     """
-    token_address = input_data.token_address
-    solidity_version = input_data.solidity_version.lstrip('^')
+    if not token_address and not source_file:
+        raise HTTPException(status_code=400, detail="Harus ada 'token_address' atau 'source_file' yang disediakan untuk analisis static.")
+    if token_address and source_file:
+        raise HTTPException(status_code=400, detail="Tidak bisa menggunakan 'token_address' dan 'source_file' bersamaan.")
 
-    source_code = fetch_source_code_from_etherscan(token_address)
+    source_code = ""
+    sol_version = solidity_version.strip("^")
+
+    if source_file:
+        logger.info(f"Mengambil source code dari file: {source_file.filename}")
+        content_bytes = await source_file.read()
+        source_code = content_bytes.decode('utf-8')
+    elif token_address:
+        logger.info(f"Mengambil source code dari Etherscan untuk alamat: {token_address}")
+        source_code = fetch_source_code_from_etherscan(token_address)
 
     tmp_file_path = ""
 
