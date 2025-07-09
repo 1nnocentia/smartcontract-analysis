@@ -3,10 +3,11 @@ import json
 import requests
 import asyncio
 import logging
-from pydantic import BaseModel, Field, validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Dict, Any, Optional
 
 from prompt import KAG_SYSTEM_PROMPT
+from recomendation_prompt import RECOMMENDATION_SYSTEM_PROMPT
 
 # Konfigurasi logging
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class LLMIssue(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Tingkat keyakinan LLM terhadap temuannya (0.0 - 1.0).")
 
     # Tambahkan validator untuk memastikan severity valid
-    @validator('severity')
+    @field_validator('severity')
     def validate_and_normalize_severity(cls, v: str) -> str:
         normalized_v = v.capitalize()
         allowed_severities = {'Kritis', 'Tinggi', 'Sedang', 'Rendah', 'Informasional'}
@@ -34,6 +35,7 @@ class LLMAnalysisResult(BaseModel):
     """Model untuk output akhir dari analisis LLM."""
     executive_summary: str = Field(..., description="Ringkasan eksekutif 2-3 kalimat tentang postur keamanan kontrak secara keseluruhan.")
     overall_risk_grading: str = Field(..., description="Penilaian risiko holistik dalam satu kata: 'Kritis', 'Tinggi', 'Sedang', atau 'Rendah'.")
+    risk_score: int = Field(..., ge=0, le=100, description="Skor risiko numerik dari 0 (sangat aman) hingga 100 (sangat kritis).")
     findings: List[LLMIssue] = Field(..., description="Daftar semua temuan dari LLM.")
     error: Optional[str] = None
 
@@ -69,30 +71,35 @@ class LLMAnalysisResult(BaseModel):
             self.overall_risk_grading = highest_severity_in_findings
         return self
 
+class LLMRecommendation(BaseModel):
+    """
+    Model untuk rekomenasi perbaikan
+    """
+    original_check: str
+    original_message: str
+    line_number: int
+    explanation: str
+    recommended_code_snippet: str
+
+class LLMRecommendationResult(BaseModel):
+    """
+    Model output rekomendasi LLM
+    """
+    recommendations: List[LLMRecommendation]
+    error: Optional[str] = None
 
 # --- Core Functions ---
 
-def create_kag_prompt(full_input_json: Dict[str, Any]) -> str:
+async def _call_llm_api(prompt: str, timeout: int=180) -> Dict[str, Any]:
     """
-    Membuat prompt KAG yang canggih untuk LLM, menggunakan seluruh
-    JSON input sebagai basis pengetahuan.
+    Untuk memanggil API Gemini
     """
-    knowledge_base_str = json.dumps(full_input_json, indent=2)
-    return KAG_SYSTEM_PROMPT.format(knowledge_base_str=knowledge_base_str)
-
-async def run_analysis(full_input_json: Dict[str, Any]) -> LLMAnalysisResult:
-    """
-    Fungsi utama untuk modul ini. Menjalankan analisis LLM.
-    """
-    logger.info("Memulai analisis kontekstual LLM (KAG)...")
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         logger.error("GEMINI_API_KEY tidak ditemukan di environment variables.")
-        return LLMAnalysisResult(executive_summary="", overall_risk_grading="Unknown", findings=[], error="Server error: GEMINI_API_KEY tidak dikonfigurasi.")
+        raise ValueError("GEMINI_API_KEY tidak ditemukan di env")
     
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
-    prompt = create_kag_prompt(full_input_json)
-
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -101,28 +108,57 @@ async def run_analysis(full_input_json: Dict[str, Any]) -> LLMAnalysisResult:
             "topP": 0.95,
         }
     }
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: requests.post(api_url, json=payload, timeout=timeout)
+    )
+    response.raise_for_status()
+    response_json = response.json()
+
+    if not response_json.get('candidates') or not response_json['candidates'][0].get('content'):
+        raise KeyError("Struktur respons LLM tidak valid: 'candidates' atau 'content' tidak ada.")
+    
+    result_text = response_json['candidates'][0]['content']['parts'][0]['text']
+    return json.loads(result_text)
+
+async def run_analysis(full_input_json: Dict[str, Any]) -> LLMAnalysisResult:
+    """
+    Fungsi utama untuk modul ini. Menjalankan analisis LLM KAG.
+    """
+    logger.info("Memulai analisis kontekstual LLM (KAG)...")
 
     try:
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None, 
-            lambda: requests.post(api_url, json=payload, timeout=120)
-        )
-        response.raise_for_status()
-        
-        response_json = response.json()
-        
-        if not response_json.get('candidates') or not response_json['candidates'][0].get('content'):
-            raise KeyError("Struktur respons LLM tidak valid: 'candidates' atau 'content' tidak ada.")
-
-        report_text = response_json['candidates'][0]['content']['parts'][0]['text']
-        report_data = json.loads(report_text)
-        
+        knowledge_base_str = json.dumps(full_input_json, indent=2)
+        prompt = KAG_SYSTEM_PROMPT.format(knowledge_base_str=knowledge_base_str)
+        report_data = await _call_llm_api(prompt)
         validated_report = LLMAnalysisResult(**report_data)
         logger.info("Analisis LLM (KAG) berhasil dan output telah divalidasi.")
         return validated_report
-
-    except Exception as e:
-        error_msg = f"Terjadi error saat analisis LLM: {type(e).__name__} - {e}"
+    except KeyError as e:
+        error_msg = f"Struktur respons LLM tidak valid: {e}"
         logger.error(error_msg, exc_info=True)
         return LLMAnalysisResult(executive_summary="", overall_risk_grading="Error", findings=[], error=error_msg)
+    
+async def generate_recommendations(static_findings: List[Dict[str, Any]]) -> LLMRecommendationResult:
+    """
+    Fungsi untuk menghasilkan rekomendasi perbaikan berdasarkan temuan analisis statis.
+    """
+    logger.info("Memulai proses rekomendasi LLM berdasarkan temuan statis...")
+    if not static_findings:
+        logger.info("Tidak ada temuan statis yang diberikan untuk rekomendasi.")
+        return LLMRecommendationResult(recommendations=[], error="Tidak ada temuan statis yang diberikan.")
+
+    try:
+        static_findings_str = json.dumps(static_findings, indent=2)
+        prompt = RECOMMENDATION_SYSTEM_PROMPT.format(static_findings_str=static_findings_str)
+
+        recommendation_data = await _call_llm_api(prompt)
+
+        validated_report = LLMRecommendationResult(**recommendation_data)
+        logger.info("Rekomendasi LLM berhasil dan output telah divalidasi.")
+        return validated_report
+    except KeyError as e:
+        error_msg = f"Struktur respons rekomendasi tidak valid: {e}"
+        logger.error(error_msg, exc_info=True)
+        return LLMRecommendationResult(recommendations=[], error=error_msg)

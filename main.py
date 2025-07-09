@@ -11,8 +11,8 @@ import asyncio
 import tempfile
 import requests
 import logging
-from fastapi import FastAPI, HTTPException, Body
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Depends, Form
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Any, Optional
 
 import static_analyzer
@@ -33,16 +33,18 @@ class AnalysisMetadata(BaseModel):
     """Metadata tentang kontrak yang dianalisis."""
     file_path: Optional[str] = Field(None, description="Path file dari kontrak yang dianalisis, jika tersedia.")
     token_address: str = Field(..., description="Alamat token kontrak di blockchain.")
-class FinalResponse(BaseModel):
-    """Model output akhir yang menggabungkan hasil dari kedua analisis."""
-    metadata: AnalysisMetadata = Field(..., description="Informasi sumber tentang kontrak yang dianalisis.")
-    static_analysis_report: static_analyzer.StaticAnalysisOutput = Field(..., description="Hasil dari analisis statis menggunakan Slither dan Mythril.")
-    llm_contextual_report: llm_analyzer.LLMAnalysisResult = Field(..., description="Hasil dari analisis kontekstual oleh LLM dengan Knowledge-Augmented Generation (KAG).")
+
+class AnalysisMetadata(BaseModel):
+    """
+    Metadata smart contract dianalisis menggunakan KAG.
+    """
+    token_address: str = Field(..., description="Alamat token kontrak yang dianalisis.")
+    fetch_source_code_from_etherscan: str = Field(None, description="Source code kontrak yang diambil dari Etherscan, jika tersedia.")
 
 app = FastAPI(
     title="Hybrid Smart Contract Analyzer",
     description="Menjalankan analisis statis (Slither, Mythril) dan analisis LLM (KAG) secara paralel menggunakan Docker.",
-    version="2.1.0"
+    version="3.1.0"
 )
 
 def fetch_source_code_from_etherscan(address: str) -> str:
@@ -94,75 +96,86 @@ def fetch_source_code_from_etherscan(address: str) -> str:
         logger.error(f"Error saat request ke Etherscan API: {e}")
         raise HTTPException(status_code=503, detail=f"Error saat menghubungi Etherscan API: {e}")
 
-@app.post("/analyze", response_model=FinalResponse, summary="Analisis Komprehensif Smart Contract")
-async def analyze_contract(
-    input_data: Dict[str, Any] = Body(...)
-):
+@app.post("/static-analysis", response_model=static_analyzer.StaticAnalysisOutput, summary="Static Analysis")
+async def static_analysis(input_data: Dict[str, Any] = Body(..., description="Input data untuk analisis statis.")):
     """
-    Endpoint utama untuk analisis.
-    
-    Menerima JSON lengkap (seperti response_baru.json), lalu:
-    1.  Mengekstrak alamat token.
-    2.  Mengambil source code dari Etherscan.
-    3.  Menjalankan analisis statis dan LLM secara paralel.
-    4.  Mengembalikan laporan gabungan.
+    Endpoint untuk menjalankan analisis statis pada smart contract.
+    1. Ambil source code dari Etherscan
+    2. Menjalankan analisis statis menggunakan Slither & Mythril
+    3. Laporan analisis
     """
-    token_address = None
-    file_path = None
-    # 1. Ekstrak informasi dari input JSON
     try:
-        token_address = input_data["contract_metadata"]["token_address"]
-        # Ambil versi solidity untuk digunakan oleh static analyzer
-        solidity_version = input_data.get("contract_metadata", {}).get("solidity_version", "0.8.24").lstrip('^')
-    except KeyError:
-        raise HTTPException(status_code=400, detail="Input JSON tidak valid: 'contract_metadata.token_address' tidak ditemukan.")
+        metadata = input_data.get("contract_metadata", {})
+        token_address = metadata.get("token_address")
+        solidity_version = metadata.get("solidity_version", "0.8.0")
 
-    # 2. Ambil source code
+        if not token_address or not solidity_version:
+            raise KeyError
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Input JSON harus berisi 'contract_metadata' dengan 'token_address' dan 'solidity_version'.")
+
+    sol_version = solidity_version.strip("^")
     source_code = fetch_source_code_from_etherscan(token_address)
 
-    # Simpan source code ke file temporer untuk analisis statis
     tmp_file_path = ""
+
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sol", delete=False, encoding='utf-8') as tmp_file:
+        with tempfile.NamedTemporaryFile(mode='w', suffix=".sol", delete=False, encoding="utf-8") as tmp_file:
             tmp_file.write(source_code)
             tmp_file_path = tmp_file.name
-        
         logger.info(f"Source code disimpan sementara di: {tmp_file_path}")
 
-        # 3. Jalankan analisis secara paralel
-        logger.info("Memulai analisis statis dan LLM secara paralel...")
-        static_task = static_analyzer.run_analysis(tmp_file_path, solidity_version)
-        llm_task = llm_analyzer.run_analysis(input_data)
-
-        # Tunggu kedua task selesai
-        results = await asyncio.gather(static_task, llm_task, return_exceptions=True)
-
-        static_report = results[0]
-        llm_report = results[1]
-
-        # Handle jika ada task yang gagal
-        if isinstance(static_report, Exception):
-            logger.error(f"Analisis statis gagal: {static_report}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Analisis statis gagal: {str(static_report)}")
+        static_report = await static_analyzer.run_analysis(tmp_file_path, solidity_version)
         
-        if isinstance(llm_report, Exception):
-            logger.error(f"Analisis LLM gagal: {llm_report}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Analisis LLM gagal: {str(llm_report)}")
-
-        logger.info("Kedua analisis berhasil diselesaikan.")
-
-        # 4. Gabungkan hasil dan kirim response
-        return FinalResponse(
-            metadata=AnalysisMetadata(file_path=file_path, token_address=token_address),
-            static_analysis_report=static_report,
-            llm_contextual_report=llm_report
-        )
+        if isinstance(static_report, Exception):
+            logger.error(f"Analisis static gagal: {static_report}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Analisis static gagal: {str(static_report)}")
+        logger.info("Analisis statis berhasil.")
+        return static_report
 
     finally:
-        # Pastikan file temporer selalu dihapus
         if tmp_file_path and os.path.exists(tmp_file_path):
             os.remove(tmp_file_path)
-            logger.info(f"File temporer {tmp_file_path} telah dihapus.")
+            logger.info(f"File sementara {tmp_file_path} telah dihapus.")
+
+@app.post("/llm-analysis", response_model=llm_analyzer.LLMAnalysisResult, summary="LLM Analysis")
+async def llm_analysis(full_input_json: Dict[str, Any] = Body(..., description="Input JSON lengkap untuk analisis LLM.")):
+    """
+    Endpoint untuk LLM analysis dengan KAG
+    1. Ambil prompt
+    2. Jalankan analisis LLM
+    3. Kembalikan hasil analisis
+    """
+    logger.info("Memulai analisis LLM dengan KAG...")
+
+    if "contract_metadata" not in full_input_json or "token_address" not in full_input_json["contract_metadata"]:
+        raise HTTPException(status_code=400, detail="Input JSON harus berisi 'contract_metadata' dengan 'token_address'.")
+    
+    llm_report = await llm_analyzer.run_analysis(full_input_json)
+
+    if isinstance(llm_report, Exception):
+        logger.error(f"Analisis LLM gagal: {llm_report}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Analisis LLM gagal: {str(llm_report)}")
+    logger.info("Analisis LLM berhasil.")
+    return llm_report
+
+@app.post("/generate-recommendations", response_model=llm_analyzer.LLMRecommendationResult, summary="Generate Recommendations")
+async def generate_recommendations_endpoint(static_analysis_output: static_analyzer.StaticAnalysisOutput = Body(..., description="Output dari analisis statis yang berisi temuan keamanan.")):
+    """
+    Memberikan rekomendasi perbaikan berdasarkan temuan analisis statis.
+    1. Mengirim analisa statis ke LLM
+    2. LLM memberikan penjelasan dan rekomendasi perbaikan
+    3. Memberikan rekomendasi
+    """
+    findings_dict = [issue.model_dump() for issue in static_analysis_output.issues]
+    recommendation_result = await llm_analyzer.generate_recommendations(findings_dict)
+
+    if isinstance(recommendation_result, Exception):
+        logger.error(f"Proses rekomendasi gagal: {recommendation_result}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Proses rekomendasi gagal: {str(recommendation_result)}")
+    logger.info("Proses rekomendasi berhasil.")
+    return recommendation_result
+
 
 @app.get("/", summary="Health Check")
 def read_root():

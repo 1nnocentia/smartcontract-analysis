@@ -33,6 +33,7 @@ Seluruh respons Anda HARUS berupa satu objek JSON yang valid dan tidak ada yang 
 {{
   "executive_summary": "Ringkasan eksekutif 2-3 kalimat mengenai postur keamanan kontrak secara keseluruhan berdasarkan temuan Anda.",
   "overall_risk_grading": "Satu peringkat risiko holistik: 'Kritis', 'Tinggi', 'Sedang', atau 'Rendah'.",
+  "risk_score": "Skor risiko numerik antara 0 (sangat aman) hingga 100 (sangat kritis), berdasarkan jumlah dan tingkat keparahan temuan.",
   "findings": [
     {{
       "severity": "Tingkat keparahan temuan: 'Kritis', 'Tinggi', 'Sedang', 'Rendah', atau 'Informasional'.",
