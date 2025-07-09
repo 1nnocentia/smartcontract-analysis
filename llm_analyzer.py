@@ -76,7 +76,7 @@ class LLMRecommendation(BaseModel):
     """
     original_check: str
     original_message: str
-    line_number: str
+    line_number: int
     explanation: str
     recommended_code_snippet: str
 
