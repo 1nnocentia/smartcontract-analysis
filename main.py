@@ -33,12 +33,13 @@ class AnalysisMetadata(BaseModel):
     """Metadata tentang kontrak yang dianalisis."""
     file_path: Optional[str] = Field(None, description="Path file dari kontrak yang dianalisis, jika tersedia.")
     token_address: str = Field(..., description="Alamat token kontrak di blockchain.")
-class FinalResponse(BaseModel):
-    """Model output akhir yang menggabungkan hasil dari kedua analisis."""
-    metadata: AnalysisMetadata = Field(..., description="Informasi sumber tentang kontrak yang dianalisis.")
-    static_analysis_report: static_analyzer.StaticAnalysisOutput = Field(..., description="Hasil dari analisis statis menggunakan Slither dan Mythril.")
-    llm_contextual_report: llm_analyzer.LLMAnalysisResult = Field(..., description="Hasil dari analisis kontekstual oleh LLM dengan Knowledge-Augmented Generation (KAG).")
 
+class StaticAnalysisInput(BaseModel):
+    """
+    Endpoint untuk static analysis.
+    """
+    
+    
 app = FastAPI(
     title="Hybrid Smart Contract Analyzer",
     description="Menjalankan analisis statis (Slither, Mythril) dan analisis LLM (KAG) secara paralel menggunakan Docker.",
