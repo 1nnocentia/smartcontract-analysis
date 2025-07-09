@@ -35,6 +35,7 @@ class LLMAnalysisResult(BaseModel):
     """Model untuk output akhir dari analisis LLM."""
     executive_summary: str = Field(..., description="Ringkasan eksekutif 2-3 kalimat tentang postur keamanan kontrak secara keseluruhan.")
     overall_risk_grading: str = Field(..., description="Penilaian risiko holistik dalam satu kata: 'Kritis', 'Tinggi', 'Sedang', atau 'Rendah'.")
+    risk_score: int = Field(..., ge=0, le=100, description="Skor risiko numerik dari 0 (sangat aman) hingga 100 (sangat kritis).")
     findings: List[LLMIssue] = Field(..., description="Daftar semua temuan dari LLM.")
     error: Optional[str] = None
 
