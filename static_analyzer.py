@@ -76,27 +76,6 @@ def format_slither_output(slither_raw_json: dict) -> List[StaticIssue]:
         formatted_issues.append(issue)
     return formatted_issues
 
-def format_mythril_output(mythril_raw_json: dict) -> List[StaticIssue]:
-    """Mengubah output JSON dari Mythril ke format StaticIssue."""
-    formatted_issues = []
-    if not mythril_raw_json.get("success", False) or not mythril_raw_json.get("issues"):
-        return []
-
-    for issue in mythril_raw_json["issues"]:
-        check_id = issue.get("swc-id", "N/A")
-        title = issue.get("title", "Mythril Issue").replace(" ", "-").lower()
-        check = f"mythril-{check_id}" if check_id != "N/A" else title
-
-        new_issue = StaticIssue(
-            check=check,
-            severity=issue.get("severity", "Unknown").capitalize(),
-            line=issue.get("lineno", -1),
-            message=issue.get("description", "No description available.").strip()
-        )
-        if new_issue not in formatted_issues:
-            formatted_issues.append(new_issue)
-    return formatted_issues
-
 # --- Core Functions untuk Menjalankan Tools ---
 
 async def run_tool(command: List[str]) -> Tuple[Optional[dict], Optional[str]]:
@@ -153,21 +132,6 @@ async def run_slither(file_path: str, solc_version: str) -> StaticAnalysisOutput
     return StaticAnalysisOutput(tool_name="Slither", issues=issues)
 
 
-async def run_mythril(file_path: str, solc_version: str) -> StaticAnalysisOutput:
-    """Menjalankan Mythril dan memformat hasilnya."""
-    command = ["myth", "analyze", file_path, "--solv", solc_version, "-o", "json"]
-    logger.info(f"Menjalankan Mythril: {' '.join(command)}")
-
-    output_json, error = await run_tool(command)
-
-    if error:
-        logger.error(f"Mythril gagal: {error}")
-        return StaticAnalysisOutput(tool_name="Mythril", issues=[], error=error)
-
-    issues = format_mythril_output(output_json)
-    logger.info(f"Mythril selesai, menemukan {len(issues)} isu.")
-    return StaticAnalysisOutput(tool_name="Mythril", issues=issues)
-
 
 async def run_analysis(file_path: str, solc_version: str) -> StaticAnalysisOutput:
     """
@@ -176,9 +140,8 @@ async def run_analysis(file_path: str, solc_version: str) -> StaticAnalysisOutpu
     """
     logger.info(f"Memulai semua analisis statis untuk versi solc: {solc_version}")
     slither_task = run_slither(file_path, solc_version)
-    mythril_task = run_mythril(file_path, solc_version)
 
-    results = await asyncio.gather(slither_task, mythril_task)
+    results = await asyncio.gather(slither_task)
     
     all_issues = []
     all_errors = []

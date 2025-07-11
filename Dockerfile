@@ -31,7 +31,6 @@ RUN solc-select use 0.8.24
 
 # Instal tool analisis statis
 RUN pip install slither-analyzer==0.10.2
-RUN pip install mythril==0.24.8
 
 # Salin file requirements.txt terlebih dahulu untuk caching layer Docker
 COPY requirements.txt .
