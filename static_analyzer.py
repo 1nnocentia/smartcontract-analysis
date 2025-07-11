@@ -98,6 +98,19 @@ async def run_tool(command: List[str]) -> Tuple[Optional[dict], Optional[str]]:
     except json.JSONDecodeError:
         return None, f"Failed to parse JSON output. STDOUT: {stdout_str[:500]}... STDERR: {stderr_str}"
 
+async def _run_command(command: List[str]) -> Tuple[str, str, int]:
+    """Helper untuk menjalankan command dan menangkap output."""
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    
+    stdout_str = stdout.decode('utf-8', errors='ignore').strip()
+    stderr_str = stderr.decode('utf-8', errors='ignore').strip()
+    
+    return stdout_str, stderr_str, process.returncode
 
 async def run_slither(file_path: str, solc_version: str) -> StaticAnalysisOutput:
     """Menjalankan Slither dan memformat hasilnya."""
@@ -149,15 +162,14 @@ async def run_slither(file_path: str, solc_version: str) -> StaticAnalysisOutput
     logger.info(f"Slither selesai, menemukan {len(issues)} isu.")
     return StaticAnalysisOutput(tool_name="Slither", issues=issues)
 
-
-
 async def run_analysis(file_path: str, solc_version: str) -> StaticAnalysisOutput:
     """
     Fungsi utama untuk modul ini. Menjalankan semua tool statis
     dan menggabungkan hasilnya.
     """
     logger.info(f"Memulai semua analisis statis untuk versi solc: {solc_version}")
-    slither_task = run_slither(file_path, solc_version)
+    cleaned_version = solc_version.strip("^~=> ")
+    slither_task = run_slither(file_path, cleaned_version)
 
     results = await asyncio.gather(slither_task)
     
