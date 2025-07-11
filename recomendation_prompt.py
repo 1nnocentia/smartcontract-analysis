@@ -34,4 +34,6 @@ Seluruh respons Anda HARUS berupa satu objek JSON yang valid dan tidak ada yang 
 }}
 ]
 }}
+
+Pastikan semua string dalam JSON ditutup dengan benar dan hindari penggunaan karakter escape yang tidak perlu. Seluruh output harus berupa satu blok JSON yang valid tanpa teks tambahan.
 """
